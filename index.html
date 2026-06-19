@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>네이버 트렌드 & 쇼핑 검색어 분석기</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; background-color: #f8f9fa; color: #333; }
+        
+        .search-area { margin-bottom: 30px; max-width: 800px; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        .search-box { display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;}
+        input[type="text"] { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; min-width: 200px;}
+        input[type="date"] { padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; color:#555;}
+        button { padding: 12px 24px; background-color: #03c75a; color: white; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; font-weight: bold; white-space: nowrap; }
+        button:hover { background-color: #02b34e; }
+        
+        .options-row { display: flex; align-items: center; gap: 15px; flex-wrap: wrap; margin-bottom: 10px;}
+        .date-box { display: flex; align-items: center; gap: 5px; font-weight: bold; color: #555;}
+        
+        .category-box { padding-top: 15px; border-top: 1px dashed #eee; display: flex; align-items: center; gap: 10px; }
+        .category-box label { font-weight: bold; color: #2db4ea; }
+        select { padding: 8px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
+        .help-text { font-size: 13px; color: #888; }
+
+        #errorBox { display: none; background-color: #ffe6e6; color: #d8000c; border: 1px solid #d8000c; padding: 15px; margin-bottom: 20px; border-radius: 8px; font-weight: bold; line-height: 1.5; word-break: break-all; }
+
+        .container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        h2 { border-bottom: 2px solid #f1f3f5; padding-bottom: 10px; margin-top: 0; font-size: 20px; }
+        .rank-item { margin: 15px 0; }
+        .rank-info { display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 5px; }
+        .progress-bar { background-color: #e9ecef; border-radius: 4px; height: 8px; overflow: hidden; }
+        .progress-fill { background-color: #03c75a; height: 100%; width: 0%; transition: width 0.5s ease; }
+        .shopping .progress-fill { background-color: #2db4ea; }
+        #loading { display: none; font-weight: bold; color: #666; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <h1>📊 네이버 검색어 트렌드 분석기</h1>
+    
+    <div id="errorBox"></div>
+
+    <div class="search-area">
+        <!-- 💡 날짜 선택 영역 추가 -->
+        <div class="options-row">
+             <div class="date-box">
+                📅 기간 설정: 
+                <input type="date" id="startDateInput"> ~ 
+                <input type="date" id="endDateInput">
+            </div>
+        </div>
+
+        <div class="search-box">
+            <input type="text" id="keywordInput" placeholder="조사할 핵심 검색어를 입력하세요 (예: 캠핑, 원피스)">
+            <button onclick="startAnalysis()">조사 시작</button>
+        </div>
+        
+        <div class="category-box">
+            <label for="categorySelect">🛒 쇼핑 검색용 카테고리 :</label>
+            <select id="categorySelect">
+                <option value="50000000">패션의류</option>
+                <option value="50000001">패션잡화</option>
+                <option value="50000002">화장품/미용</option>
+                <option value="50000003">디지털/가전</option>
+                <option value="50000004">가구/인테리어</option>
+                <option value="50000005">출산/육아</option>
+                <option value="50000006">식품</option>
+                <option value="50000007" selected>스포츠/레저</option>
+                <option value="50000008">생활/건강</option>
+                <option value="50000009">여가/생활편의</option>
+                <option value="50000010">면세점</option>
+            </select>
+            <span class="help-text">(* 통합 검색 트렌드는 카테고리와 무관하게 네이버 전체 기준으로 조회됩니다.)</span>
+        </div>
+    </div>
+
+    <div id="loading">데이터를 분석 중입니다. 잠시만 기다려주세요 (약 3~5초 소요)...</div>
+
+    <div class="container">
+        <div class="card">
+            <h2>📊 통합 검색 트렌드 순위</h2>
+            <div id="trendRank"></div>
+        </div>
+        <div class="card shopping">
+            <h2>🛒 쇼핑 검색어 클릭 순위</h2>
+            <div id="shopRank"></div>
+        </div>
+    </div>
+
+    <script>
+        // 💡 페이지 로드 시 기본 날짜를 '최근 7일'로 세팅
+        window.onload = () => {
+            const today = new Date();
+            const lastWeek = new Date();
+            lastWeek.setDate(today.getDate() - 7);
+            today.setDate(today.getDate() - 1); // 어제 날짜까지 조회가 안전함
+
+            document.getElementById('endDateInput').value = today.toISOString().split('T')[0];
+            document.getElementById('startDateInput').value = lastWeek.toISOString().split('T')[0];
+        };
+
+        async function startAnalysis() {
+            const keyword = document.getElementById('keywordInput').value;
+            const category = document.getElementById('categorySelect').value;
+            const startDate = document.getElementById('startDateInput').value;
+            const endDate = document.getElementById('endDateInput').value;
+            const errorBox = document.getElementById('errorBox');
+
+            if (!keyword) return alert('검색어를 입력해주세요.');
+            if (!startDate || !endDate) return alert('조회할 시작 날짜와 종료 날짜를 지정해주세요.');
+            if (new Date(startDate) > new Date(endDate)) return alert('시작 날짜는 종료 날짜보다 이전이어야 합니다.');
+
+            errorBox.style.display = 'none';
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('trendRank').innerHTML = '';
+            document.getElementById('shopRank').innerHTML = '';
+
+            try {
+                // 💡 날짜 파라미터(startDate, endDate)를 백엔드로 함께 전달
+                const response = await fetch(`/api/search?keyword=${encodeURIComponent(keyword)}&category=${category}&startDate=${startDate}&endDate=${endDate}`);
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || '알 수 없는 에러가 발생했습니다.');
+                }
+
+                renderList('trendRank', data.trend, '통합 트렌드');
+                renderList('shopRank', data.shop, '쇼핑');
+            } catch (error) {
+                errorBox.style.display = 'block';
+                errorBox.innerHTML = `🚨 <b>분석 실패:</b><br>${error.message}`;
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        function renderList(targetId, list, type) {
+            const container = document.getElementById(targetId);
+            if (!list || list.length === 0) {
+                container.innerHTML = `<p style="color: #666; padding: 10px 0;">조회된 ${type} 데이터가 없거나 0점입니다.</p>`;
+                return;
+            }
+
+            container.innerHTML = list.map((item, idx) => `
+                <div class="rank-item">
+                    <div class="rank-info">
+                        <span>${idx + 1}위. ${item.name}</span>
+                        <span>${item.score.toFixed(1)}</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: ${item.score}%"></div>
+                    </div>
+                </div>
+            `).join('');
+        }
+    </script>
+</body>
+</html>
