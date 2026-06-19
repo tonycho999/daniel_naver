@@ -1,14 +1,27 @@
-module.exports = async (req, res) => {
-    // 💡 프론트에서 startDate와 endDate 값도 받아옴
-    const { keyword, category, startDate, endDate } = req.query;
-    
-    const clientId = process.env.NAVER_CLIENT_ID;
-    const clientSecret = process.env.NAVER_CLIENT_SECRET;
+export async function onRequestGet(context) {
+    // 💡 Cloudflare Pages 환경의 요청 URL에서 파라미터 추출
+    const url = new URL(context.request.url);
+    const keyword = url.searchParams.get('keyword');
+    const category = url.searchParams.get('category');
+    const startDate = url.searchParams.get('startDate');
+    const endDate = url.searchParams.get('endDate');
 
-    if (!clientId || !clientSecret) return res.status(500).json({ error: 'API 키 누락 (서버 환경변수를 확인하세요)' });
-    if (!keyword) return res.status(400).json({ error: '검색어를 입력해주세요' });
-    if (!startDate || !endDate) return res.status(400).json({ error: '날짜 범위가 지정되지 않았습니다.' });
-    
+    // 💡 Cloudflare 환경 변수 가져오기
+    const clientId = context.env.NAVER_CLIENT_ID;
+    const clientSecret = context.env.NAVER_CLIENT_SECRET;
+
+    // 응답을 JSON 형태로 반환하기 위한 헬퍼 함수
+    const jsonResponse = (data, status) => {
+        return new Response(JSON.stringify(data), {
+            status: status,
+            headers: { 'Content-Type': 'application/json' }
+        });
+    };
+
+    if (!clientId || !clientSecret) return jsonResponse({ error: 'API 키 누락 (서버 환경변수를 확인하세요)' }, 500);
+    if (!keyword) return jsonResponse({ error: '검색어를 입력해주세요' }, 400);
+    if (!startDate || !endDate) return jsonResponse({ error: '날짜 범위가 지정되지 않았습니다.' }, 400);
+
     const shopCategory = category || '50000000'; 
 
     try {
@@ -40,8 +53,8 @@ module.exports = async (req, res) => {
                 const currentKeywords = [keyword, ...chunk]; 
                 
                 const body = {
-                    startDate, // 💡 프론트에서 받은 날짜 사용
-                    endDate,   // 💡 프론트에서 받은 날짜 사용
+                    startDate, 
+                    endDate,   
                     timeUnit: 'date', 
                     keywordGroups: currentKeywords.map(kw => ({ groupName: kw, keywords: [kw] }))
                 };
@@ -54,7 +67,7 @@ module.exports = async (req, res) => {
                     const errData = await res.text();
                     throw new Error(`[통합검색 API 에러] ${res.status} - ${errData}`);
                 }
-
+                
                 const data = await res.json();
                 if (data.results) {
                     data.results.forEach(item => {
@@ -63,6 +76,7 @@ module.exports = async (req, res) => {
                     });
                 }
             }
+            
             return Object.entries(results)
                 .map(([name, score]) => ({ name, score }))
                 .filter(item => item.score > 0 || item.name === keyword)
@@ -79,8 +93,8 @@ module.exports = async (req, res) => {
                 const currentKeywords = [keyword, ...chunk]; 
                 
                 const body = {
-                    startDate, // 💡 프론트에서 받은 날짜 사용
-                    endDate,   // 💡 프론트에서 받은 날짜 사용
+                    startDate, 
+                    endDate,   
                     timeUnit: 'date',
                     category: shopCategory,
                     keyword: currentKeywords.map(kw => ({ name: kw, param: [kw] }))
@@ -89,12 +103,12 @@ module.exports = async (req, res) => {
                 const res = await fetch('https://openapi.naver.com/v1/datalab/shopping/category/keywords', {
                     method: 'POST', headers: apiHeaders, body: JSON.stringify(body)
                 });
-
+                
                 if (!res.ok) {
                     const errData = await res.text();
                     throw new Error(`[쇼핑검색 API 에러] ${res.status} - ${errData}`);
                 }
-
+                
                 const data = await res.json();
                 if (data.results) {
                     data.results.forEach(item => {
@@ -103,6 +117,7 @@ module.exports = async (req, res) => {
                     });
                 }
             }
+            
             return Object.entries(results)
                 .map(([name, score]) => ({ name, score }))
                 .filter(item => item.score > 0 || item.name === keyword)
@@ -112,9 +127,9 @@ module.exports = async (req, res) => {
 
         // 동시 실행
         const [trendData, shopData] = await Promise.all([fetchSearchTrend(), fetchShoppingTrend()]);
-        return res.status(200).json({ trend: trendData, shop: shopData });
+        return jsonResponse({ trend: trendData, shop: shopData }, 200);
 
     } catch (error) {
-        return res.status(500).json({ error: error.message });
+        return jsonResponse({ error: error.message }, 500);
     }
-};
+}
